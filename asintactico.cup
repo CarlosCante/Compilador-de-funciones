@@ -1,0 +1,561 @@
+package gui;
+
+
+import java_cup.runtime.*;
+import Modulos.*;
+import Thompson.*;
+import GeneracionHtml.*;    
+import java.io.FileReader;
+import javax.swing.JOptionPane;
+import java.util.ArrayList;
+
+
+parser code {:
+
+	public static Nodo raiz;
+	public static Conjunto c;
+	public static Listas listaS = new Listas();
+	public int contE = 0;//conteo de errores
+	public static Lista lis = AnalizadorLexico.lista;
+
+    
+    /********************** Reporte de error encontrado. right left *************************************************/
+
+    public void report_error(String message, Object info) {
+        StringBuilder m = new StringBuilder("Error");
+        String val = "";
+        int yline = 0;
+        int ycol = 0;
+
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+            val = s.value.toString();
+            yline = s.left;
+            ycol = s.right;
+            if (s.left >= 0) {                
+                m.append(" in line "+(s.left+1));
+                if (s.right >= 0)
+                    m.append(", column "+(s.right+1));
+            }
+        }
+        m.append(" : "+message);
+
+        lis.AddError(new Eror("Sintactico", val, yline, ycol));
+		
+		JOptionPane.showMessageDialog(null, "Error sintáctico no se esperaba" + m);
+        System.err.println(m);
+    }
+   
+    /******************************** Cuando se encuentra un error de donde el sistema no puede
+    ********************************* recuperarse, se lanza un error fatal. Se despliega el mensaje
+    ********************************* de error y se finaliza la ejecucion. */
+
+    public void report_fatal_error(String message, Object info) {
+        report_error(message, info);
+        //System.exit(1);
+    }
+
+    /**metodo para crear html**/
+    public static void crearHtml(){
+		AnalizadorLexico.crearHtml();
+    }
+
+    public static void limpiarLista(){
+        AnalizadorLexico.limpiarLista();
+    }
+
+   
+   	/************************************* METODO PARA ANALIZAR UNA CADENA DE ENTRADA **********************************/
+
+    public static void AnalizarGramatica(String[] args){
+        try {
+            AnalizadorSintactico asin = new AnalizadorSintactico( 
+	            							new AnalizadorLexico( 
+	        									new FileReader(args[0])
+	        								) 
+        								);
+
+            Object result = asin.parse().value;
+            System.out.println("\n\n================================ SE FINALIZO EL ANALISIS ===================================");
+
+            if(raiz != null){
+            	JOptionPane.showMessageDialog(null, "El archivo no tiene errores");
+            }else{
+            	JOptionPane.showMessageDialog(null, "El archivo contiene errores");
+            }
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+
+:};
+
+
+/*************************************************** DEFINICION DE TERMINALELS ***********************************************************/
+
+terminal String         tSep,tSimbolo,tEspecial,tDigito,tCaracter,tTodo,tDoblePor,tConj,tPuntoComa,tDosPuntos,tId,tExpConj,tFlecha,tRetorno,tParentesisA,tParentesisC,tCadena,tComa,tYyText,tYyRow,tYyCol,tReserv,tCorcheteA,tCorcheteC,tError,tOr,tAnd,tPor,tMas,tSignoI
+						;
+
+
+/*************************************************** DEFINICION DE NO TERMINALELS ********************************************************/
+   
+non terminal Object     	S,T,EXPCONJ,OTROEXPCONJ,CONJUNTO,SENTENCIAS,OTRA_SENT,SENTENCIA,RETORNO,PAL_RESERV,PARAM,FUNCIONES,FUNCION,ERROR,RETORNO_E,PARAM_E
+						;
+
+/***************************************************** PRECEDENCIA Y ASOCITIVIDAD ********************************************************/
+
+
+//precedence left tOr;
+
+/*
+precedence left tMas,tMenos;
+precedence left tPor,tDiv;
+precedence right tPot;
+*/
+
+
+
+
+/*************************************************************** GRAMATICA ****************************************************************/
+
+
+start with					S;
+
+
+S::=						tDoblePor SENTENCIAS tDoblePor
+							{:
+								Nodo padre = new Nodo("S","",0,0);
+								parser.raiz = padre;
+							:}
+							;
+
+SENTENCIAS::=				SENTENCIAS OTRA_SENT
+							| OTRA_SENT
+							;
+
+OTRA_SENT::=				SENTENCIA:nSentencia
+							{:
+								parser.listaS.AddSentencias((Sentencia) nSentencia);
+							:}
+							| CONJUNTO:nConjunto
+							{:
+								parser.listaS.AddConjuntos((Conjunto) nConjunto);
+							:}
+							| ERROR:nError 
+							{:
+								Erors e = (Erors) nError;
+
+								if(parser.listaS.getErr() == null){
+									parser.listaS.setErr(e);
+									e.getExp().CreateDot(e.getId() + "_AFN");
+
+									Tabla t = new Tabla();
+									t.ConstruirAFD(e.getExp());
+
+									Automata afd = t.CreateAFD();
+									afd.CreateDotAFD(e.getId() + "_AFD");
+
+									e.setExafd(afd);
+									Retorno ret = new Retorno(e.getYyText(), e.getYyRow(), e.getYyCol());
+
+									Sentencia s = new Sentencia(e.getId(), e.getExp(), afd, t);
+									s.setRet(ret);
+
+									parser.listaS.AddSentencias(s);
+
+								}else{
+									parser.contE += 1;
+									parser.report_fatal_error("Doble sentencia Error", "Error");
+									parser.lis.AddError(new Eror("Sintactico", "Mas de una sentencia de error", 0, 0));
+								}
+							:}
+							;
+
+SENTENCIA::=				tId:nId tFlecha T:nT RETORNO:nRetorno PAL_RESERV:nPal_Reserv
+							{:
+								Automata afn = (Automata) nT;
+								afn.CreateDot(nId + "_AFN");
+
+								Tabla t = new Tabla();
+								t.ConstruirAFD(afn);
+								t.mostrar_Tabla();
+
+								Automata afd = t.CreateAFD();
+								afd.CreateDotAFD(nId + "_AFD");
+
+								Sentencia s = new Sentencia(nId, afn, afd, t);
+								ArrayList<Retorno> ret = (ArrayList<Retorno>) nPal_Reserv;
+
+								s.setReservada(ret);
+								
+								ArrayList nret = (ArrayList) nRetorno;
+								String t0 = Metodos.quitComillas(nret.get(0).toString());
+								String t1 = Metodos.quitComillas(nret.get(1).toString());
+								String t2 = Metodos.quitComillas(nret.get(2).toString());
+								String t3 = Metodos.quitComillas(nret.get(3).toString());
+								Retorno retornoS = new Retorno(t0, t1, t2, t3);
+
+								s.setRet(retornoS);
+
+								parser.listaS.setRetAux(new ArrayList<Retorno>());
+
+								RESULT = s;
+							:}
+							;
+
+CONJUNTO::=					tConj tDosPuntos tId:nId tFlecha EXPCONJ:nExpConj tPuntoComa
+							{:
+								Conjunto cj = new Conjunto(nExpConj.toString(), nId);
+								RESULT = cj;
+							:}
+							;
+
+EXPCONJ::=					tExpConj:nExpConj
+							{:
+								RESULT = nExpConj;
+							:}
+							| OTROEXPCONJ:nOtroExpConj1 tSep:nSep OTROEXPCONJ:nOtroExpConj2
+							{:
+								String val = "";
+								val += nOtroExpConj1.toString();
+								val += nSep.toString();
+								val += nOtroExpConj2.toString();
+
+								RESULT = val;
+							:}
+							;
+
+OTROEXPCONJ::=				tSimbolo:nSimbolo
+							{:
+								RESULT = nSimbolo;
+							:}
+							| tPuntoComa:nPuntoComa
+							{:
+								RESULT = nPuntoComa;
+							:}
+							| tDosPuntos:nDosPuntos
+							{:
+								RESULT = nDosPuntos;
+							:}
+							| tCorcheteA:nCorcheteA
+							{:
+								RESULT = nCorcheteA;
+							:}
+							| tCorcheteC:nCorcheteC
+							{:
+								RESULT = nCorcheteC;
+							:}
+							| tParentesisA:nParentesisA
+							{:
+								RESULT = nParentesisA;
+							:}
+							| tParentesisC:nParectesisC
+							{:
+								RESULT = nParectesisC;
+							:}
+							| tComa:nComa
+							{:
+								RESULT = nComa;
+							:}
+							| tOr:nOr
+							{:
+								RESULT = nOr;
+							:}
+							| tPor:nPor
+							{:
+								RESULT = nPor;
+							:}
+							| tMas:nMas
+							{:
+								RESULT = nMas;
+							:}
+							| tSignoI:nSignoI
+							{:
+								RESULT = nSignoI;
+							:}
+							;
+
+ERROR::=					tError:nError tFlecha T:nT tFlecha RETORNO_E:mE tPuntoComa
+							{:
+								ArrayList al = (ArrayList) mE;
+								Erors er = new Erors(nError, (Automata) nT, al.get(0).toString(), al.get(1).toString(), al.get(2).toString());
+
+								RESULT = er;
+							:}
+							;
+
+RETORNO_E::=				tError tParentesisA PARAM_E:nParam tParentesisC
+							{:
+								RESULT = nParam;
+							:}
+							;
+
+PARAM_E::=					tYyText:nText tComa tYyRow:nRow tComa tYyCol:nCol
+							{:
+								ArrayList param = new ArrayList();
+								param.add(nText);
+								param.add(nRow);
+								param.add(nCol);
+
+								RESULT = param;
+							:}
+							;
+
+RETORNO::=					tFlecha tRetorno tParentesisA PARAM:nParam tParentesisC
+							{:
+								RESULT = nParam;
+							:}
+							;
+
+PARAM::=					tCadena:nCadena tComa tYyText:nText tComa tYyRow:nRow tComa tYyCol:nCol
+							{:
+								ArrayList param = new ArrayList();
+								param.add(nCadena);
+								param.add(nText);
+								param.add(nRow);
+								param.add(nCol);
+
+								RESULT = param;
+							:}
+							;
+
+PAL_RESERV::=				tFlecha tReserv tCorcheteA FUNCIONES tCorcheteC tPuntoComa
+							{:
+								ArrayList<Retorno> ret = (ArrayList<Retorno>) parser.listaS.getRetAux();
+								RESULT = ret;
+							:}
+							| tPuntoComa
+							;
+
+FUNCIONES::=				FUNCIONES FUNCION
+							| FUNCION
+							;
+
+FUNCION::=					tCadena:nCadena RETORNO:nRetorno tPuntoComa
+							{:
+								ArrayList nret = (ArrayList) nRetorno;
+								String cad = Metodos.quitComillas(nCadena);
+								String t0 = Metodos.quitComillas(nret.get(0).toString());
+								String t1 = Metodos.quitComillas(nret.get(1).toString());
+								String t2 = Metodos.quitComillas(nret.get(2).toString());
+								String t3 = Metodos.quitComillas(nret.get(3).toString());
+								Retorno ret = new Retorno(cad, t0, t1, t2, t3);
+								parser.listaS.getRetAux().add(ret);
+							:}
+							;
+
+T::=						tOr:nOr T:nT1 T:nT2
+							{:
+								Automata a = ConstruirAFN.ObtenerAFN(nOr, (Automata) nT1, (Automata) nT2);
+								RESULT = a;
+							:}
+							| tAnd:nAnd T:nT1 T:nT2
+							{:
+								Automata con = ConstruirAFN.ObtenerAFN(nAnd, (Automata) nT1, (Automata) nT2);
+
+								RESULT = con;
+							:}
+							| tPor:nPor T:nT
+							{:
+								Automata sol = (Automata) nT;
+
+								Automata kleene = ConstruirAFN.ObtenerAFN(nPor, sol, null);
+
+								RESULT = kleene;
+							:}
+							| tMas T:nT
+							{:
+								// + T  =  . T * T  //ver como comparar cuando son iguales los automatas
+								Automata dif = ConstruirAFN.autDif((Automata) nT);
+
+								Automata a = (Automata) nT;
+
+								Automata c = ConstruirAFN.clonar(a);
+
+								Automata kleene = ConstruirAFN.ObtenerAFN("*", a, null);
+
+								Automata concatenacion = ConstruirAFN.ObtenerAFN(".", c, kleene);
+
+								RESULT = concatenacion;
+							:}
+							| tSignoI:nSignoI T:nT 
+							{:
+								//? = | e T
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = new Transicion(in, fin, ConstruirAFN.EPSILON);
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								Automata afn = ConstruirAFN.ObtenerAFN("|", (Automata) nT, a);
+
+								RESULT = afn;
+							:}
+							| tId:nId
+							{:
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = new Transicion(in, fin, nId);
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								RESULT = a;
+							:}
+							| tTodo:nTodo
+							{:
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = new Transicion(in, fin, nTodo);
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								RESULT = a;
+							:}
+							| tCadena:nCadena
+							{:
+								int s0 = 0;
+								Automata a = new Automata();//se crea un automata
+
+								String val = Metodos.quitComillas(nCadena);//se quita las comillas
+
+								Estado in = new Estado(String.valueOf(s0));//se establece el estado inicial
+								s0 += 1;
+
+								a.setInicial(in);//se agrega el s0 al automata
+								a.AddEstados(in);
+
+								Estado tin = in;//variable de cambio de inicio para la transicion
+
+								Estado aux = null;//variable aux para agregar el s0 final de la transicion
+
+								for(int i = 0; i < val.length(); i++){
+
+									aux = new Estado(String.valueOf(s0));//se crea un final
+									s0 += 1;
+									Transicion t = new Transicion(tin, aux, String.valueOf(val.charAt(i)));//desde el inical al final hay solamente 1 transicion
+									tin.AddTransicion(t); // se guarda la transicion en la variable de cambio de inicio
+
+									a.AddEstados(aux);//se agrega los nuevos esstados que aparescan
+
+									tin = aux; //ahora el inicio va a ser el final
+									//se repite el ciclo
+								}
+								a.setFin(aux);//terminado el ciclo se queda en el estado final aux
+
+								RESULT = a;
+							:}
+							| tCaracter:nCaracter
+							{:
+								String val = Metodos.quitComillas(nCaracter);
+
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = new Transicion(in, fin, val);
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								RESULT = a;
+							:}
+							| tEspecial:nEspecial
+							{:
+								String val = "";
+								String val1 = "";
+								boolean com = false;
+								if(!(nEspecial.charAt(2) == (char)34)){
+									if((int)nEspecial.charAt(2) == 116){
+										val = String.valueOf((char) 9);
+									}else{
+										if((int) nEspecial.charAt(2) == 39){
+											val = String.valueOf((char) 39);
+										}
+									}
+									//val = Metodos.quitComillas(nEspecial);
+								}else{
+							        for(int i = 0; i < nEspecial.length(); i++){
+							            if(i < nEspecial.length() - 1 && i != 0 && i != 1){
+							                val1 += nEspecial.charAt(i);
+							            }
+							        }
+									com = true;
+								}
+
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = null;
+								if(com){
+									t = new Transicion(in, fin, val1);
+								}else{
+									t = new Transicion(in, fin, val);
+								}
+								
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								RESULT = a;
+							:}
+							| tDigito:nDigito
+							{:
+								int s0 = 0;
+								Estado in = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Estado fin = new Estado(String.valueOf(s0));
+								s0 += 1;
+								Transicion t = new Transicion(in, fin, nDigito);
+
+								in.AddTransicion(t);
+
+								Automata a = new Automata();
+								a.setInicial(in);
+								a.setFin(fin);
+								a.AddEstados(in);
+								a.AddEstados(fin);
+
+								RESULT = a;
+							:}
+							;

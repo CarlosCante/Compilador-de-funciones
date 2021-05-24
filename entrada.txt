@@ -1,0 +1,23 @@
+%%
+
+	CONJ: letra -> a~z;
+
+	id -> . letra * | "_" | letra digito -> retorno("tCuenta", yytext, yyrow, yycol) -> RESERV[ "crear"-> retorno("tCrear", yytext, yyrow, yycol); "depositar"-> retorno("tDepositar", yytext, yyrow, yycol); "retirar"-> retorno("tRetirar", yytext, yyrow, yycol); "transferir"-> retorno("tTransferir", yytext, yyrow, yycol); "eliminar"-> retorno("tEliminar", yytext, yyrow, yycol); "imprimir"-> retorno("tImprimir", yytext, yyrow, yycol);];
+
+	abre -> "("-> retorno("tAbre", yytext, yyrow, yycol);
+
+	separador -> ","-> retorno("tSeparador", yytext, yyrow, yycol);
+	
+	CONJ: digito -> 0~9;
+
+	cierra -> ")"-> retorno("tCierra", yytext, yyrow, yycol);
+
+	delimitador -> ";"-> retorno("tDelimitador", yytext, yyrow, yycol);
+
+	decimal -> . +digito . "." +digito -> retorno("tMonto", yytext, yyrow, yycol);
+	
+	fecha -> . digito . digito . "/" . digito . digito . "/" . digito . digito . digito digito -> retorno("tFecha", yytext, yyrow, yycol);
+
+	error -> [:todo:] -> error(yytext, yyrow, yycol);
+
+%%
